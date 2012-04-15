@@ -5,6 +5,7 @@
   This utility is licensed under a GPLv3 License (see COPYING).
   Source at: https://github.com/tac0010/img2dcpu
   
+  April 15, 2012 - v0.2: Added support for full color images.
   April 13, 2012 - v0.1: Initial Release. Only works with 24-bit bitmaps. 
 */
 
@@ -20,6 +21,7 @@ void readImage(char *filename);
 void saveFile(char *filename);
 string generateDCPU(int index, RGBTRIPLE firstPixel, RGBTRIPLE secondPixel);
 string int2hex(int i, int width);
+int roundColorValue(RGBTRIPLE color);
 
 HANDLE hfile;
 DWORD written;
@@ -118,18 +120,10 @@ void saveFile(char *filename) {
 //Generates DCPU code for two vertically adjacent BMP pixels (one DCMP tile).
 string generateDCPU(int index, RGBTRIPLE firstPixel, RGBTRIPLE secondPixel) {
     string output;
-    //Get binary rgb color for first (top) pixel:
-    int fR = firstPixel.rgbtRed/255;
-    int fG = firstPixel.rgbtGreen/255;
-    int fB = firstPixel.rgbtBlue/255;
-    //Get binary rgb color for second (bottom) pixel:
-    int sR = secondPixel.rgbtRed/255;
-    int sG = secondPixel.rgbtGreen/255;
-    int sB = secondPixel.rgbtBlue/255;
 
-    //Calculate HEX RGB value for each pixel:
-    int fRGB = 0 + 4*fR + 2*fG + fB;
-    int sRGB = 0 + 4*sR + 2*sG + sB;
+    //Find the closest allowable hex value for each color:
+    int fRGB = roundColorValue(firstPixel);
+    int sRGB = roundColorValue(secondPixel);
 
     //Create DCPU code in the form of "SET [0x8AAA], 0xFS00".
     //AAA = Address offset, F = RGB of top pixel, S = RGB of bottom pixel
@@ -143,6 +137,28 @@ string int2hex(int i, int width) {
   stringstream stream;
   stream << hex << setfill('0') << setw(width) << i;
   return stream.str();
+}
+
+int roundColorValue(RGBTRIPLE color) {
+    //Array of possible colors in 0x10c in 24-bit representation:
+    int possibleColors[16][3] = {{0x00,0x00,0x00}, {0x00,0x00,0xaa}, {0x00,0xaa,0x00}, {0x00,0xaa,0xaa},
+                                 {0xaa,0x00,0x00}, {0xaa,0x00,0xaa}, {0xaa,0x55,0x00}, {0xaa,0xaa,0xaa},
+                                 {0x55,0x55,0x55}, {0x55,0x55,0xff}, {0x55,0xff,0x55}, {0x55,0xff,0xff},
+                                 {0xff,0x55,0x55}, {0xff,0x55,0xff}, {0xff,0xff,0x55}, {0xff,0xff,0xff}};
+
+    int minRGBdiff = 765; //Set a high enough minimum to guarantee it will be overwritten
+    int closestColor = 0; //Closest DCPU color to the actual color
+    for (int i=0; i<16; ++i) {
+        int RGBdiff = abs(color.rgbtRed - possibleColors[i][0]);
+        RGBdiff += abs(color.rgbtGreen - possibleColors[i][1]);
+        RGBdiff += abs(color.rgbtBlue - possibleColors[i][2]);
+        if (RGBdiff < minRGBdiff) {
+            minRGBdiff = RGBdiff;
+            closestColor = i;
+        }
+    }
+
+    return closestColor;
 }
 
 

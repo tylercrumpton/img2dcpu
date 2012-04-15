@@ -6,6 +6,7 @@ This utility is licensed under a GPLv3 License (see COPYING).
 Source at: https://github.com/tac0010/img2dcpu
   
 --- Release Information ---
+April 15, 2012 - v0.2: Added support for full color images.
 April 13, 2012 - v0.1: Initial Release. Only works with 24-bit bitmaps.
  
 --- Description ---
@@ -27,7 +28,7 @@ outputfilename  The filename of the text file that will contain the DCPU code.
 If no arguments are provided, the help message will be displayed.
 
 --- Limitations ---
-As of v0.1, img2dcpu can only convert from a 32x24 24-bit color BMP image, but
+As of v0.2, img2dcpu can only convert from a 32x24 24-bit color BMP image, but
 future releases may include other image types and resolutions. Also, img2dcpu
 uses Windows-only libraries for reading in the bitmap file, so it is not
 currently cross-platform compatible.

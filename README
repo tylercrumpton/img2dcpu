@@ -6,6 +6,7 @@ This utility is licensed under a GPLv3 License (see COPYING).
 Source at: https://github.com/tac0010/img2dcpu
   
 --- Release Information ---
+April 16, 2012 - v0.3: Added support for high-resolution images.
 April 15, 2012 - v0.2: Added support for full color images.
 April 13, 2012 - v0.1: Initial Release. Only works with 24-bit bitmaps.
  
@@ -14,10 +15,10 @@ img2dcpu allows you to convert a color bitmap image into code that can be used
 to display the image on the DCPU in Mojang's new space game, 0x10c. Currently, 
 the specification of the IO system in 0x10c allows for a 32x12-tile screen,
 where each tile consists of a 4x8 character. img2dcpu can create assembly code
-that can display a 32x24 color image on the DCPU screen by making use of a 
-custom font, splitting each tile into two square pixels. Future work includes
-dividing the tile further so that a full 128x96 image can be generated and
-displayed.
+that can display a 32x24 color or 64x48 black and white image on the DCPU screen 
+by making use of custom fonts, splitting each tile into smaller square pixels. 
+Future work includes allowing conversions of animated GIFs so that small 
+animations can be created.
 
 --- Usage ---
 > img2dcpu [imagefilename] [outputfilename]
@@ -28,10 +29,11 @@ outputfilename  The filename of the text file that will contain the DCPU code.
 If no arguments are provided, the help message will be displayed.
 
 --- Limitations ---
-As of v0.2, img2dcpu can only convert from a 32x24 24-bit color BMP image, but
-future releases may include other image types and resolutions. Also, img2dcpu
-uses Windows-only libraries for reading in the bitmap file, so it is not
-currently cross-platform compatible.
+As of v0.3, img2dcpu can only convert from a 32x24 or 64x48 24-bit color BMP 
+images, but the 64x48 image will be converted to black and white. Future releases 
+may include other image types and resolutions. Also, img2dcpu uses Windows-only 
+libraries for reading in the bitmap file, so it is not currently cross-platform 
+compatible, but will be soon.
 
 --- Contribution ---
 I hope you can find this work useful, and if you would like to contribute

@@ -5,6 +5,7 @@
   This utility is licensed under a GPLv3 License (see COPYING).
   Source at: https://github.com/tac0010/img2dcpu
 
+  April 17, 2012 - v0.4: Added support for 64x64 centered images.
   April 16, 2012 - v0.3: Added support for high-resolution images.
   April 15, 2012 - v0.2: Added support for full color images.
   April 13, 2012 - v0.1: Initial Release. Only works with 24-bit bitmaps.
@@ -20,11 +21,12 @@ using namespace std;
 
 void readImage(char *filename);
 void saveFile(char *filename);
-string generateDCPU(int index, RGBTRIPLE firstPixel, RGBTRIPLE secondPixel);
+string generateLowResTile(int index, RGBTRIPLE firstPixel, RGBTRIPLE secondPixel);
 string int2hex(int i, int width);
 int roundColorValue(RGBTRIPLE color);
-string genFontSpace(int fontWidth);
-string generateDCPUTile(int pxIndex, int imgIndex);
+string genFontSpace(int imageMode);
+string generateHighResFullTile(int pxIndex, int imgIndex);
+string generateHighResSmallTile(int pxIndex, int imgIndex);
 
 HANDLE hfile;
 DWORD written;
@@ -33,8 +35,9 @@ BITMAPINFOHEADER bih;
 RGBTRIPLE *image;
 
 
-enum {ONE_BIT, SEVEN_BIT};
-int fontWidth;
+enum {LOW_RES_FULL, HIGH_RES_FULL, HIGH_RES_SMALL};
+int imageMode;
+int centerOffset = 64 + 8;
 
 int main (int argc, char **argv) {
 
@@ -51,7 +54,7 @@ int main (int argc, char **argv) {
         cout << "img2dcpu [imagefilename] [outputfilename]\n\n";
         cout << "imagefilename   The filename of the bitmap image that is to be converted.\n";
         cout << "outputfilename  The filename of the text file that will contain the DCPU code.\n\n";
-        cout << "Note: img2dcpu currently only works with 32x24 color or 64x48 b&w images.";
+        cout << "Note: img2dcpu currently only works with 32x24 color, 64x48 or 64x64 b&w images.\n";
         return 0;
     }
 
@@ -61,17 +64,23 @@ int main (int argc, char **argv) {
         readImage(argv[1]); //Read in the bitmap image
         cout << " Done.\n\n";
 
-        cout << "The image width is " << bih.biWidth << "\n";     //Will output the width of the bitmap
-        cout << "The image height is " << bih.biHeight << "\n"; //Will output the height of the bitmap
+        cout << " Image Width : " << bih.biWidth << "\n";     //Will output the width of the bitmap
+        cout << "Image Height : " << bih.biHeight << "\n"; //Will output the height of the bitmap
 
         if (bih.biWidth == 32 && bih.biHeight == 24) {
-            fontWidth = ONE_BIT;
+            imageMode = LOW_RES_FULL;
+            cout << "   Mode Used : 32x24 Full Color, Full Screen.\n";
         }
         else if (bih.biWidth == 64 && bih.biHeight == 48) {
-            fontWidth = SEVEN_BIT;
+            imageMode = HIGH_RES_FULL;
+            cout << "   Mode Used : 64x48 Black and White, Full Screen.\n";
+        }
+        else if (bih.biWidth == 64 && bih.biHeight == 64) {
+            imageMode = HIGH_RES_SMALL;
+            cout << "   Mode Used : 64x64 Black and White, Centered.\n";
         }
         else {
-            cout << "\nError: img2dcpu currently only supports 32x24 color or 64x48 b&w images.";
+            cout << "\nError: img2dcpu currently only supports 32x24 color or 64x48/64x64 b&w images.";
             return 2;
         }
 
@@ -107,27 +116,36 @@ void saveFile(char *filename) {
     ofstream oFile;
     oFile.open(filename); //Open file for writing (overwrites file)
 
-    oFile << genFontSpace(fontWidth); //Set up custom font
+    oFile << genFontSpace(imageMode); //Set up custom font
 
     //Calculate the DCPU code for each "pixel" (tile)
     //Skip every other row, because we take 2 at a time.
-    if (fontWidth == ONE_BIT) {
+    if (imageMode == LOW_RES_FULL) {
         for (int i=0; i<bih.biHeight - 1; i+=2) {
             for (int j=0; j<bih.biWidth; ++j) {
                 int pxIndex = (32 * (i/2)) + j; //Index of the DCPU pixel (or tile);
                 int imgIndex = (bih.biWidth * (bih.biHeight - (i+1) )) + j; //Index of pixel in BMP
-                oFile << generateDCPU(pxIndex, image[imgIndex], image[imgIndex - bih.biWidth]);
+                oFile << generateLowResTile(pxIndex, image[imgIndex], image[imgIndex - bih.biWidth]);
             }
         }
     }
-    else if (fontWidth == SEVEN_BIT) {
+    else if (imageMode == HIGH_RES_FULL) {
         for (int i=0; i<bih.biHeight - 3; i+=4) {
             for (int j=0; j<bih.biWidth - 1; j+=2) {
                 int pxIndex = (32 * (i/4)) + j/2; //Index of the DCPU pixel (or tile)
                 int imgIndex = (bih.biWidth * (bih.biHeight - (i+1) )) + j; //Index of pixel in BMP
                 //Analyze tile:
-                oFile << generateDCPUTile(pxIndex, imgIndex);
-
+                oFile << generateHighResFullTile(pxIndex, imgIndex);
+            }
+        }
+    }
+    else if (imageMode == HIGH_RES_SMALL) {
+        for (int i=0; i<bih.biHeight - 7; i+=8) {
+            for (int j=0; j<bih.biWidth - 3; j+=4) {
+                int pxIndex = 2 * ((16 * (i/8)) + j/4); //Index of the DCPU pixel (or tile)
+                int imgIndex = (bih.biWidth * (bih.biHeight - (i+1) )) + j; //Index of pixel in BMP
+                //Analyze tile:
+                oFile << generateHighResSmallTile(pxIndex, imgIndex);
             }
         }
     }
@@ -135,7 +153,7 @@ void saveFile(char *filename) {
 }
 
 //Generates DCPU code for two vertically adjacent BMP pixels (one DCMP tile).
-string generateDCPU(int index, RGBTRIPLE firstPixel, RGBTRIPLE secondPixel) {
+string generateLowResTile(int index, RGBTRIPLE firstPixel, RGBTRIPLE secondPixel) {
     string output;
 
     //Find the closest allowable hex value for each color:
@@ -181,18 +199,18 @@ int roundColorValue(RGBTRIPLE color) {
 }
 
 //Generates the DCPU for the custom font space, depending on the font width required
-string genFontSpace(int fontWidth) {
+string genFontSpace(int imageMode) {
     stringstream stream;
 
-    //Set up custom 1-bit font:
-    if (fontWidth == ONE_BIT) {
+    //Set up custom low res font space:
+    if (imageMode == LOW_RES_FULL) {
 
         stream << "SET [0x8180], 0x0f0f\n";
         stream << "SET [0x8181], 0x0f0f\n";
     }
 
-    //Set up custom 7-bit font
-    else if (fontWidth == SEVEN_BIT) {
+    //Set up custom full high res font space:
+    else if (imageMode == HIGH_RES_FULL) {
         int decValues[4] = {0, 3, 12, 15};
         int count = 0;
         for (int i=0; i<4; ++i) {
@@ -209,12 +227,22 @@ string genFontSpace(int fontWidth) {
         }
     }
 
+    //Sets up custom highres "letter space":
+    else if (imageMode == HIGH_RES_SMALL) {
+        for (int i=0; i<8; ++i) {
+            for (int j=0; j<16; ++j) {
+                int tileIndex = centerOffset + i*32 + j;
+                int charIndex = i*16 + j;
+                stream << "SET [0x8" + int2hex(tileIndex, 3) + "], 0x0f" + int2hex(charIndex, 2) + "\n";
+            }
+        }
+    }
 
   return stream.str();
 }
 
-//Generates the DCPU tile when using the higher resolution 7-bit font width
-string generateDCPUTile(int pxIndex, int imgIndex) {
+//Generates the High Res Full Size tile when using the higher resolution 7-bit font width
+string generateHighResFullTile(int pxIndex, int imgIndex) {
     boolean invertFlag;
     int i, j, k, l;
 
@@ -350,4 +378,20 @@ string generateDCPUTile(int pxIndex, int imgIndex) {
     else {
         return "SET [0x8" + int2hex(pxIndex, 3) + "], 0xf0" + int2hex(character, 2) + "\n";
     }
+}
+
+//Generates the High Res Small Size tile when using the higher resolution 7-bit font width
+string generateHighResSmallTile(int pxIndex, int imgIndex) {
+
+    int ijkl[4] = {0,0,0,0};
+    int jVals[8] = {1, 2, 4, 8, 16, 32, 64, 128};
+    for (int i=0; i<4; ++i) {
+        for (int j=0; j<8; ++j) {
+            if (roundColorValue(image[(imgIndex + i) - j*bih.biWidth]) == 0) {
+                ijkl[i] += jVals[j];
+            }
+        }
+    }
+    return "SET [0x8" + int2hex(384 + pxIndex, 3) + "], 0x" + int2hex(ijkl[0], 2) + int2hex(ijkl[1], 2) + "\n" +
+           "SET [0x8" + int2hex(385 + pxIndex, 3) + "], 0x" + int2hex(ijkl[2], 2) + int2hex(ijkl[3], 2) + "\n";
 }

@@ -5,6 +5,7 @@
   This utility is licensed under a GPLv3 License (see COPYING).
   Source at: https://github.com/tac0010/img2dcpu
 
+  April 19, 2012 - v0.5: Added animation support to all three resolutions.
   April 17, 2012 - v0.4: Added support for 64x64 centered images.
   April 16, 2012 - v0.3: Added support for high-resolution images.
   April 15, 2012 - v0.2: Added support for full color images.
@@ -36,6 +37,15 @@ RGBTRIPLE *image;
 
 
 enum {LOW_RES_FULL, HIGH_RES_FULL, HIGH_RES_SMALL};
+
+const int LOW_RES_FULL_W = 32;
+const int LOW_RES_FULL_H = 24;
+const int HIGH_RES_FULL_W = 64;
+const int HIGH_RES_FULL_H = 48;
+const int HIGH_RES_SMALL_W = 64;
+const int HIGH_RES_SMALL_H = 64;
+
+bool animationFlag = false;
 int imageMode;
 int centerOffset = 64 + 8;
 
@@ -54,6 +64,9 @@ int main (int argc, char **argv) {
         cout << "img2dcpu [imagefilename] [outputfilename]\n\n";
         cout << "imagefilename   The filename of the bitmap image that is to be converted.\n";
         cout << "outputfilename  The filename of the text file that will contain the DCPU code.\n\n";
+        cout << "In order to generate an animation, you must input an image contains all frames,\n";
+        cout << "in order, from left to right. Each frame must have a resolution supported by\n";
+        cout << "img2dcpu. See the /examples folder for some sample images.\n\n";
         cout << "Note: img2dcpu currently only works with 32x24 color, 64x48 or 64x64 b&w images.\n";
         return 0;
     }
@@ -69,15 +82,33 @@ int main (int argc, char **argv) {
 
         if (bih.biWidth == 32 && bih.biHeight == 24) {
             imageMode = LOW_RES_FULL;
+            animationFlag = false;
             cout << "   Mode Used : 32x24 Full Color, Full Screen.\n";
+        }
+        else if (bih.biWidth % 32 == 0 && bih.biHeight == 24) {
+            imageMode = LOW_RES_FULL;
+            animationFlag = true;
+            cout << "   Mode Used : 32x24 Full Color, Full Screen, Animated.\n";
         }
         else if (bih.biWidth == 64 && bih.biHeight == 48) {
             imageMode = HIGH_RES_FULL;
+            animationFlag = false;
             cout << "   Mode Used : 64x48 Black and White, Full Screen.\n";
+        }
+        else if (bih.biWidth % 64 == 0 && bih.biHeight == 48) {
+            imageMode = HIGH_RES_FULL;
+            animationFlag = true;
+            cout << "   Mode Used : 64x48 Black and White, Full Screen, Animated.\n";
         }
         else if (bih.biWidth == 64 && bih.biHeight == 64) {
             imageMode = HIGH_RES_SMALL;
+            animationFlag = false;
             cout << "   Mode Used : 64x64 Black and White, Centered.\n";
+        }
+        else if (bih.biWidth % 64 == 0 && bih.biHeight == 64) {
+            imageMode = HIGH_RES_SMALL;
+            animationFlag = true;
+            cout << "   Mode Used : 64x64 Black and White, Centered, Animated.\n";
         }
         else {
             cout << "\nError: img2dcpu currently only supports 32x24 color or 64x48/64x64 b&w images.";
@@ -113,42 +144,79 @@ void readImage(char *filename) {
 
 //Generates and saves DCPU code from the "image[]" array.
 void saveFile(char *filename) {
+    int frameWidth =0;
+    int frameHeight = 0;
+    if (imageMode == LOW_RES_FULL) {
+        frameWidth = LOW_RES_FULL_W;
+        frameHeight = LOW_RES_FULL_H;
+    }
+    else if (imageMode == HIGH_RES_FULL) {
+        frameWidth = HIGH_RES_FULL_W;
+        frameHeight = HIGH_RES_FULL_H;
+    }
+    else if (imageMode == HIGH_RES_SMALL) {
+        frameWidth = HIGH_RES_SMALL_W;
+        frameHeight = HIGH_RES_SMALL_H;
+    }
+
+    int frames = bih.biWidth / frameWidth;
+
     ofstream oFile;
     oFile.open(filename); //Open file for writing (overwrites file)
 
     oFile << genFontSpace(imageMode); //Set up custom font
 
-    //Calculate the DCPU code for each "pixel" (tile)
-    //Skip every other row, because we take 2 at a time.
-    if (imageMode == LOW_RES_FULL) {
-        for (int i=0; i<bih.biHeight - 1; i+=2) {
-            for (int j=0; j<bih.biWidth; ++j) {
-                int pxIndex = (32 * (i/2)) + j; //Index of the DCPU pixel (or tile);
-                int imgIndex = (bih.biWidth * (bih.biHeight - (i+1) )) + j; //Index of pixel in BMP
-                oFile << generateLowResTile(pxIndex, image[imgIndex], image[imgIndex - bih.biWidth]);
+    if (animationFlag == true) {
+        oFile << ":anim_loop\n";
+    }
+
+    for (int x=0;x<frames;++x) {
+        //Calculate the DCPU code for each "pixel" (tile)
+        //Skip every other row, because we take 2 at a time.
+        if (imageMode == LOW_RES_FULL) {
+            for (int i=0; i<frameHeight - 1; i+=2) {
+                for (int j=0; j<frameWidth; ++j) {
+                    int pxIndex = (32 * (i/2)) + j; //Index of the DCPU pixel (or tile);
+                    int imgIndex = (bih.biWidth * (frameHeight - (i+1) )) + j + (x * frameWidth); //Index of pixel in BMP
+                    oFile << generateLowResTile(pxIndex, image[imgIndex], image[imgIndex - frameWidth]);
+                }
             }
         }
-    }
-    else if (imageMode == HIGH_RES_FULL) {
-        for (int i=0; i<bih.biHeight - 3; i+=4) {
-            for (int j=0; j<bih.biWidth - 1; j+=2) {
-                int pxIndex = (32 * (i/4)) + j/2; //Index of the DCPU pixel (or tile)
-                int imgIndex = (bih.biWidth * (bih.biHeight - (i+1) )) + j; //Index of pixel in BMP
-                //Analyze tile:
-                oFile << generateHighResFullTile(pxIndex, imgIndex);
+        else if (imageMode == HIGH_RES_FULL) {
+            for (int i=0; i<frameHeight - 3; i+=4) {
+                for (int j=0; j<frameWidth - 1; j+=2) {
+                    int pxIndex = (32 * (i/4)) + j/2; //Index of the DCPU pixel (or tile)
+                    int imgIndex = (bih.biWidth * (frameHeight - (i+1) )) + j + (x * frameWidth); //Index of pixel in BMP
+                    //Analyze tile:
+                    oFile << generateHighResFullTile(pxIndex, imgIndex);
+                }
             }
         }
-    }
-    else if (imageMode == HIGH_RES_SMALL) {
-        for (int i=0; i<bih.biHeight - 7; i+=8) {
-            for (int j=0; j<bih.biWidth - 3; j+=4) {
-                int pxIndex = 2 * ((16 * (i/8)) + j/4); //Index of the DCPU pixel (or tile)
-                int imgIndex = (bih.biWidth * (bih.biHeight - (i+1) )) + j; //Index of pixel in BMP
-                //Analyze tile:
-                oFile << generateHighResSmallTile(pxIndex, imgIndex);
+        else if (imageMode == HIGH_RES_SMALL) {
+            for (int i=0; i<frameHeight - 7; i+=8) {
+                for (int j=0; j<frameWidth - 3; j+=4) {
+                    int pxIndex = 2 * ((16 * (i/8)) + j/4); //Index of the DCPU pixel (or tile)
+                    int imgIndex = (bih.biWidth * (frameHeight - (i+1) )) + j + (x * frameWidth); //Index of pixel in BMP
+                    //Analyze tile:
+                    oFile << generateHighResSmallTile(pxIndex, imgIndex);
+                }
             }
         }
+        oFile << "JSR delay\n";
     }
+
+    if (animationFlag == true) {
+        oFile << "SET PC, anim_loop\n";
+    }
+
+    oFile << ":delay\n";
+    oFile << "SET A, 0;\n";
+    oFile << ":loop\n";
+    oFile << "ADD A, 1;\n";
+    oFile << "IFN A, 1000;\n";
+    oFile << "SET PC, loop\n";
+    oFile << "SET PC, POP\n";
+
     oFile.close(); //Close the file
 }
 

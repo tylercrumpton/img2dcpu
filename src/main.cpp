@@ -5,6 +5,7 @@
   This utility is licensed under a GPLv3 License (see COPYING).
   Source at: https://github.com/tac0010/img2dcpu
 
+  April 20, 2012 - v0.6: Added cross-platform support, fixed 32x24 animation.
   April 19, 2012 - v0.5: Added animation support to all three resolutions.
   April 17, 2012 - v0.4: Added support for 64x64 centered images.
   April 16, 2012 - v0.3: Added support for high-resolution images.
@@ -14,9 +15,57 @@
 
 #include <iostream>
 #include <fstream>
-#include <windows.h>
 #include <sstream>
 #include <iomanip>
+
+#ifdef __WIN32__
+    #include <windows.h>
+#else
+    #include <unistd.h>
+
+    typedef FILE* HANDLE;
+
+    typedef unsigned char BYTE;
+    typedef BYTE BOOLEAN;
+    typedef BOOLEAN boolean;
+    typedef uint32_t DWORD;
+    typedef int32_t LONG;
+    typedef uint16_t WORD;
+
+    #pragma pack(push, 2)
+
+    // from Wingdi.h
+    typedef struct tagBITMAPFILEHEADER {
+        WORD  bfType;
+        DWORD bfSize;
+        WORD  bfReserved1;
+        WORD  bfReserved2;
+        DWORD bfOffBits;
+    } BITMAPFILEHEADER, *PBITMAPFILEHEADER;
+
+    typedef struct tagBITMAPINFOHEADER {
+        DWORD biSize;
+        LONG  biWidth;
+        LONG  biHeight;
+        WORD  biPlanes;
+        WORD  biBitCount;
+        DWORD biCompression;
+        DWORD biSizeImage;
+        LONG  biXPelsPerMeter;
+        LONG  biYPelsPerMeter;
+        DWORD biClrUsed;
+        DWORD biClrImportant;
+    } BITMAPINFOHEADER, *PBITMAPINFOHEADER;
+
+    typedef struct tagRGBTRIPLE {
+        BYTE rgbtBlue;
+        BYTE rgbtGreen;
+        BYTE rgbtRed;
+    } RGBTRIPLE;
+
+    #pragma pack(pop)
+
+#endif
 
 using namespace std;
 
@@ -130,16 +179,29 @@ int main (int argc, char **argv) {
 
 //Reads in 24-bit bitmap file into "image[]" array of RGBTRIPLEs.
 void readImage(char *filename) {
-    //Open the file
-    hfile = CreateFile(filename,GENERIC_READ,FILE_SHARE_READ,NULL,OPEN_EXISTING,NULL,NULL);
-    //Read the header
-    ReadFile(hfile,&bfh,sizeof(bfh),&written,NULL);
-    ReadFile(hfile,&bih,sizeof(bih),&written,NULL);
-    //Read image
-    int imagesize = bih.biWidth*bih.biHeight; //Determine the image size for memory allocation
-    image = new RGBTRIPLE[imagesize]; //Create a new blank image array
-    ReadFile(hfile,image,imagesize*sizeof(RGBTRIPLE),&written,NULL); //Reads it off the disk
-    CloseHandle(hfile);  //Close source file
+    #ifdef __WIN32__
+        //Open the file
+        hfile = CreateFile(filename,GENERIC_READ,FILE_SHARE_READ,NULL,OPEN_EXISTING,NULL,NULL);
+        //Read the header
+        ReadFile(hfile,&bfh,sizeof(bfh),&written,NULL);
+        ReadFile(hfile,&bih,sizeof(bih),&written,NULL);
+        //Read image
+        int imagesize = bih.biWidth*bih.biHeight; //Determine the image size for memory allocation
+        image = new RGBTRIPLE[imagesize]; //Create a new blank image array
+        ReadFile(hfile,image,imagesize*sizeof(RGBTRIPLE),&written,NULL); //Reads it off the disk
+        CloseHandle(hfile);  //Close source file
+    #else
+        //Open the file
+        hfile = fopen(filename, "rb");
+        //Read the header
+        fread(&bfh, sizeof(bfh), 1, hfile);
+        fread(&bih, sizeof(bih), 1, hfile);
+        //Read image
+        int imagesize = bih.biWidth*bih.biHeight; //Determine the image size for memory allocation
+        image = new RGBTRIPLE[imagesize]; //Create a new blank image array
+        fread(image, sizeof(RGBTRIPLE), imagesize, hfile); //Reads it off the disk
+        fclose(hfile);  //Close source file
+    #endif
 }
 
 //Generates and saves DCPU code from the "image[]" array.
@@ -178,7 +240,7 @@ void saveFile(char *filename) {
                 for (int j=0; j<frameWidth; ++j) {
                     int pxIndex = (32 * (i/2)) + j; //Index of the DCPU pixel (or tile);
                     int imgIndex = (bih.biWidth * (frameHeight - (i+1) )) + j + (x * frameWidth); //Index of pixel in BMP
-                    oFile << generateLowResTile(pxIndex, image[imgIndex], image[imgIndex - frameWidth]);
+                    oFile << generateLowResTile(pxIndex, image[imgIndex], image[imgIndex - bih.biWidth]);
                 }
             }
         }

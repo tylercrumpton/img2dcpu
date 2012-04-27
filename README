@@ -6,6 +6,7 @@ This utility is licensed under a GPLv3 License (see COPYING).
 Source at: https://github.com/tac0010/img2dcpu
   
 --- Release Information ---
+April 26, 2012 - v0.7: Notably reduced output code size. Not up to 1.5 spec.
 April 20, 2012 - v0.6: Added cross-platform support, fixed 32x24 animation.
 April 19, 2012 - v0.5: Added animation support to all three resolutions.
 April 17, 2012 - v0.4: Added support for 64x64 centered images.

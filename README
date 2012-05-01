@@ -6,6 +6,7 @@ This utility is licensed under a GPLv3 License (see COPYING).
 Source at: https://github.com/tac0010/img2dcpu
   
 --- Release Information ---
+April 30, 2012 - v0.8: Updated to 1.7 spec. Added custom palette. Double buffering.
 April 26, 2012 - v0.7: Notably reduced output code size. Not up to 1.5 spec.
 April 20, 2012 - v0.6: Added cross-platform support, fixed 32x24 animation.
 April 19, 2012 - v0.5: Added animation support to all three resolutions.
@@ -22,8 +23,7 @@ where each tile consists of a 4x8 character. img2dcpu can create assembly code
 that can display a 32x24 color or 64x48/64x64 black and white image on the DCPU 
 screen by making use of custom fonts, splitting each tile into smaller square 
 pixels. img2dcpu can also generate short animations in each of the supported
-resolutions. Future work includes decreasing the final output in order to 
-decrease the amount of DCPU that is used.
+resolutions. 
 
 --- Usage ---
 > img2dcpu [imagefilename] [outputfilename]
@@ -38,7 +38,7 @@ img2dcpu. See the /examples folder for some sample images.
 If no arguments are provided, the help message will be displayed.
 
 --- Limitations ---
-As of v0.6, img2dcpu can only convert from a 32x24 or 64x48/64x64 24-bit color BMP 
+As of v0.8, img2dcpu can only convert from a 32x24 or 64x48/64x64 24-bit color BMP 
 images, but the 64x48 and 64x64 images will be converted to black and white. 64x64
 images will not fill up the screen, but will instead be centered in the DCPU window.
 Future releases may include other image types and resolutions.

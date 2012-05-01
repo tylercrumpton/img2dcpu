@@ -5,6 +5,7 @@
   This utility is licensed under a GPLv3 License (see COPYING).
   Source at: https://github.com/tac0010/img2dcpu
 
+  April 30, 2012 - v0.8: Updated to 1.7 spec. Added custom palette. Double buffering.
   April 26, 2012 - v0.7: Notably reduced output code size. Not up to 1.5 spec.
   April 20, 2012 - v0.6: Added cross-platform support, fixed 32x24 animation.
   April 19, 2012 - v0.5: Added animation support to all three resolutions.
@@ -75,11 +76,15 @@ void saveFile(char *filename);
 string generateLowResTile(int index, RGBTRIPLE firstPixel, RGBTRIPLE secondPixel);
 string int2hex(int i, int width);
 int roundColorValue(RGBTRIPLE color);
+int roundColorToPalette(RGBTRIPLE color);
 string genFontSpace(int imageMode);
 string generateDCPUFull();
 string generateDCPUSmall();
 string generateHighResFullTile(int pxIndex, int imgIndex);
 string generateHighResSmallTile(int pxIndex, int imgIndex);
+void generateColorPalette();
+string setupMonitor();
+string genPaletteSpace();
 
 HANDLE hfile;
 DWORD written;
@@ -100,6 +105,8 @@ const int HIGH_RES_SMALL_H = 64;
 bool animationFlag = false;
 int imageMode;
 int centerOffset = 64 + 8;
+
+int currentPalette[16][3] = {};
 
 int main (int argc, char **argv) {
 
@@ -128,8 +135,7 @@ int main (int argc, char **argv) {
         cout << "Loading image...";
         readImage(argv[1]); //Read in the bitmap image
         cout << " Done.\n\n";
-
-        cout << " Image Width : " << bih.biWidth << "\n";     //Will output the width of the bitmap
+        cout << " Image Width : " << bih.biWidth << "\n";  //Will output the width of the bitmap
         cout << "Image Height : " << bih.biHeight << "\n"; //Will output the height of the bitmap
 
         if (bih.biWidth == 32 && bih.biHeight == 24) {
@@ -213,6 +219,7 @@ void saveFile(char *filename) {
     ofstream oFile;
     oFile.open(filename); //Open file for writing (overwrites file)
 
+
     if (imageMode == HIGH_RES_SMALL) {
         oFile << generateDCPUSmall();
     }
@@ -234,44 +241,30 @@ string generateDCPUFull() {
     }
 
     int frames = bih.biWidth / frameWidth;
+    generateColorPalette();
+    output << setupMonitor();
+
+    //Set up the DCPU custom font:
+    output << "SET B, font_space\n" <<
+              "SET A, 1\n" <<
+              "HWI [monitor]\n\n";
+
+    //Set up the DCPU custom color palette:
+    output << "SET B, palette_space\n" <<
+              "SET A, 2\n" <<
+              "HWI [monitor]\n\n";
 
     output << "SET A, 0\n" <<
-              "SET B, font_space\n" <<
-              ":font_loop\n" <<
-              "SET [0x8180 + A], [B]\n" <<
-              "ADD A, 1\n" <<
-              "ADD B, 1\n";
-
-    if (imageMode == LOW_RES_FULL) {
-        output << "IFN A, 2\n";
-    }
-    else if (imageMode == HIGH_RES_FULL) {
-        output << "IFN A, 256\n";
-    }
-
-    output << "SET PC, font_loop\n\n" <<
-              ":full_loop\n" <<
               "SET B, tile_space\n" <<
-              "SET C, " << frames << "\n";
-
-
-    if (animationFlag == true) {
-        output << ":frame_loop\n";
-    }
-
-    output << "SET A, 0\n" <<
-              ":tile_loop\n" <<
-              "SET [0x8000 + A], [B]\n" <<
-              "ADD A, 1\n" <<
-              "ADD B, 1\n" <<
-              "IFN A, 0x0180\n" <<
-              "SET PC, tile_loop\n\n";
+              "HWI [monitor]\n\n";
 
     if (animationFlag == true) {
-        output << "SUB C, 1\n" <<
+        output << ":frame_loop\n" <<
+                  "IFE B, exit\n" <<
+                  "SET B, tile_space\n" <<
+                  "HWI [monitor]\n" <<
                   "JSR delay\n" <<
-                  "IFE C, 0\n" <<
-                  "SET PC, full_loop\n" <<
+                  "ADD B, 0x0180\n" <<
                   "SET PC, frame_loop\n\n" <<
                   ":delay\n" <<
                   "SET X, 0\n" <<
@@ -282,14 +275,19 @@ string generateDCPUFull() {
                   "SET PC, POP\n";
     }
 
-    output << "BRK\n";
+    if (animationFlag == false) {
+        output << "BRK\n";
+    }
 
-    output << ":font_space DAT ";
-    output << genFontSpace(imageMode); //Set up custom font
+    output << ":font_space DAT " << genFontSpace(imageMode) << "\n"; //Set up custom font
+    if (imageMode == LOW_RES_FULL) {
+        output << ":palette_space DAT " << genPaletteSpace();
+    }
+    else if (imageMode == HIGH_RES_FULL) {
+        output << ":palette_space DAT " << "0x0000, 0x0FFF";
+    }
 
     output << "\n:tile_space DAT ";
-
-
 
     for (int x=0;x<frames;++x) {
         //Calculate the DCPU code for each "pixel" (tile)
@@ -314,54 +312,53 @@ string generateDCPUFull() {
             }
         }
     }
-
+    output << "\n:exit dat 0\n" <<
+              ":monitor dat 0\n" <<
+              ":not_found SET PC, 0\n";
     return output.str();
 }
 
-//NON WORKING
+string setupMonitor() {
+    stringstream result;
+    result << "HWN Z\n" <<
+              ":get_monitor\n" <<
+              "IFE Z, 0\n" <<
+              "SET PC, not_found\n" <<
+              "SUB Z, 1\n" <<
+              "HWQ Z\n" <<
+              "IFN A, 0xF615\n" <<
+              "SET PC, get_monitor\n" <<
+              "SET [monitor], Z\n\n";
+    return result.str();
+}
+
 string generateDCPUSmall() {
     stringstream output;
     int frameWidth = HIGH_RES_SMALL_W;
     int frames = bih.biWidth / frameWidth;
+    output << setupMonitor();
 
-    output << "SET A, 0\n" <<
-              "SET B, tile_space\n" <<
-              ":skip_loop\n" <<
-              "SET C, 0\n" <<
-              "ADD A, 16\n" <<
-              "IFE A, 272\n" <<
-              "SET PC, full_loop\n" <<
-              ":tile_loop\n" <<
-              "SET [0x8038 + A], [B]\n" <<
-              "ADD A, 1\n" <<
-              "ADD B, 1\n" <<
-              "ADD C, 1\n" <<
-              "IFE C, 16\n" <<
-              "SET PC, skip_loop\n" <<
-              "SET PC, tile_loop\n" <<
-              ":full_loop\n" <<
-              "SET B, font_space\n";
+    //Set up the DCPU custom font:
+    output << "SET B, tile_space\n" <<
+              "SET A, 0\n" <<
+              "HWI [monitor]\n\n";
 
+    //Set up the DCPU custom color palette:
+    output << "SET B, palette_space\n" <<
+              "SET A, 2\n" <<
+              "HWI [monitor]\n\n";
 
+    output << "SET A, 1\n" <<
+              "SET B, font_space\n" <<
+              "HWI [monitor]\n\n";
 
     if (animationFlag == true) {
-        output << "SET C, " << frames << "\n" <<
-                  ":frame_loop\n";
-    }
-
-    output << "SET A, 0\n" <<
-              ":font_loop\n" <<
-              "SET [0x8180 + A], [B]\n" <<
-              "ADD A, 1\n" <<
-              "ADD B, 1\n" <<
-              "IFN A, 256\n" <<
-              "SET PC, font_loop\n\n";
-
-    if (animationFlag == true) {
-        output << "SUB C, 1\n" <<
+        output << ":frame_loop\n" <<
+                  "IFE B, exit\n" <<
+                  "SET B, font_space\n" <<
+                  "HWI [monitor]\n" <<
                   "JSR delay\n" <<
-                  "IFE C, 0\n" <<
-                  "SET PC, full_loop\n" <<
+                  "ADD B, 512\n" <<
                   "SET PC, frame_loop\n\n" <<
                   ":delay\n" <<
                   "SET X, 0\n" <<
@@ -372,9 +369,13 @@ string generateDCPUSmall() {
                   "SET PC, POP\n";
     }
 
-    output << "BRK\n";
+    if (animationFlag == false) {
+        output << "BRK\n";
+    }
 
-    output << ":tile_space DAT ";
+    output << ":palette_space DAT " << "0x0000, 0x0FFF";
+
+    output << "\n:tile_space DAT ";
     output << genFontSpace(imageMode); //Set up custom font
 
     output << "\n:font_space DAT ";
@@ -389,6 +390,10 @@ string generateDCPUSmall() {
             }
         }
     }
+
+    output << "\n:exit dat 0\n" <<
+              ":monitor dat 0\n" <<
+              ":not_found SET PC, 0\n";
     return output.str();
 }
 
@@ -399,20 +404,14 @@ string int2hex(int i, int width) {
   return stream.str();
 }
 
-//Rounds off colors to the nearest possible value for the DCPU
-int roundColorValue(RGBTRIPLE color) {
-    //Array of possible colors in 0x10c in 24-bit representation:
-    int possibleColors[16][3] = {{0x00,0x00,0x00}, {0x00,0x00,0xaa}, {0x00,0xaa,0x00}, {0x00,0xaa,0xaa},
-                                 {0xaa,0x00,0x00}, {0xaa,0x00,0xaa}, {0xaa,0x55,0x00}, {0xaa,0xaa,0xaa},
-                                 {0x55,0x55,0x55}, {0x55,0x55,0xff}, {0x55,0xff,0x55}, {0x55,0xff,0xff},
-                                 {0xff,0x55,0x55}, {0xff,0x55,0xff}, {0xff,0xff,0x55}, {0xff,0xff,0xff}};
-
-    int minRGBdiff = 765; //Set a high enough minimum to guarantee it will be overwritten
-    int closestColor = 0; //Closest DCPU color to the actual color
+//Rounds off colors to the nearest possible value for the current DCPU palette
+int roundColorToPalette(RGBTRIPLE color) {
+    int minRGBdiff = 60000; //Set a high enough minimum to guarantee it will be overwritten
+    int closestColor = 0; //Closest palette color to the actual color
     for (int i=0; i<16; ++i) {
-        int RGBdiff = abs(color.rgbtRed - possibleColors[i][0]);
-        RGBdiff += abs(color.rgbtGreen - possibleColors[i][1]);
-        RGBdiff += abs(color.rgbtBlue - possibleColors[i][2]);
+        int RGBdiff = abs(color.rgbtRed - (currentPalette[i][0] << 4));
+        RGBdiff += abs(color.rgbtGreen - (currentPalette[i][1] << 4));
+        RGBdiff += abs(color.rgbtBlue - (currentPalette[i][2] << 4));
         //Select the color with the smallest deviation:
         if (RGBdiff < minRGBdiff) {
             minRGBdiff = RGBdiff;
@@ -421,6 +420,58 @@ int roundColorValue(RGBTRIPLE color) {
     }
 
     return closestColor;
+}
+
+int roundColorValue(RGBTRIPLE color) {
+
+    //Convert 8-bit color values to 4-bit:
+    int closestR = (color.rgbtRed + 8) / 16;
+    if (closestR == 16)
+        closestR = 15;
+    int closestG = (color.rgbtGreen + 8) / 16;
+    if (closestG == 16)
+        closestG = 15;
+    int closestB = (color.rgbtBlue + 8) / 16;
+    if (closestB == 16)
+        closestB = 15;
+
+    //Concatenate RGB values:
+    return closestR * 256 + closestG * 16 + closestB;
+}
+
+//Creates a color palette that closely matches the image.
+void generateColorPalette() {
+    int imageSize = bih.biWidth * bih.biHeight;
+    unsigned int colorCounts[4096] = {};
+    unsigned int tempCounts[16] = {};
+    unsigned int tempPalette[16] = {};
+
+    //Find color frequencies:
+    for (int i=0; i<imageSize; ++i) {
+        ++colorCounts[roundColorValue(image[i])];
+    }
+    //Find 16 most common colors:
+    for (int i=0; i<4096; ++i) {
+        for (int j=0; j<16; ++j) {
+            if (colorCounts[i] > tempCounts[j]) {
+                for (int k=15; k>j; --k) {
+                    tempPalette[k] = tempPalette[k-1];
+                    tempCounts[k] = tempCounts[k-1];
+                }
+                tempPalette[j] = i;
+                tempCounts[j] = colorCounts[i];
+                break;
+            }
+
+        }
+    }
+
+    //Generate current palette format:
+    for (int i=0; i<16; ++i) {
+        currentPalette[i][0] = (tempPalette[i] & 0b111100000000) >> 8;
+        currentPalette[i][1] = (tempPalette[i] & 0b000011110000) >> 4;
+        currentPalette[i][2] = (tempPalette[i] & 0b000000001111);
+    }
 }
 
 //Generates the DCPU for the custom font space, depending on the font width required
@@ -451,15 +502,39 @@ string genFontSpace(int imageMode) {
 
     //Sets up custom highres "letter space":
     else if (imageMode == HIGH_RES_SMALL) {
+        for (int i=0; i<64; ++i) {
+            stream << "0x0000, ";
+        }
         for (int i=0; i<8; ++i) {
+            for (int j=0; j<8; ++j) {
+                stream << "0x0000, ";
+            }
             for (int j=0; j<16; ++j) {
                 int charIndex = i*16 + j;
-                stream << "0x0f" + int2hex(charIndex, 2) + ", ";
+                stream << "0x01" + int2hex(charIndex, 2) + ", ";
             }
+            for (int j=0; j<8; ++j) {
+                stream << "0x0000, ";
+            }
+        }
+        for (int i=0; i<64; ++i) {
+            stream << "0x0000, ";
         }
     }
 
   return stream.str();
+}
+
+string genPaletteSpace() {
+    stringstream result;
+    for (int i=0; i<16; ++i) {
+        int r, g, b;
+        r = currentPalette[i][0];
+        g = currentPalette[i][1];
+        b = currentPalette[i][2];
+        result << "0x0" << int2hex(r,1) << int2hex(g,1) << int2hex(b,1) << ", ";
+    }
+    return result.str();
 }
 
 //Generates DCPU code for two vertically adjacent BMP pixels (one DCMP tile).
@@ -467,8 +542,8 @@ string generateLowResTile(int index, RGBTRIPLE firstPixel, RGBTRIPLE secondPixel
     string output;
 
     //Find the closest allowable hex value for each color:
-    int fRGB = roundColorValue(firstPixel);
-    int sRGB = roundColorValue(secondPixel);
+    int fRGB = roundColorToPalette(firstPixel);
+    int sRGB = roundColorToPalette(secondPixel);
 
     output = "0x" + int2hex(fRGB, 1) + int2hex(sRGB, 1) + "00, ";
 
@@ -608,14 +683,10 @@ string generateHighResFullTile(int pxIndex, int imgIndex) {
     int character =  32*i + 8*j + 2*k + l;
     //Invert the tile is needed:
     if (invertFlag == true) {
-        //return "SET [0x8" + int2hex(pxIndex, 3) + "], 0x0f" + int2hex(character, 2) + "\n";
-        output = "0x0f" + int2hex(character, 2) + ", ";
-
-
+        output = "0x01" + int2hex(character, 2) + ", ";
     }
     else {
-        //return "SET [0x8" + int2hex(pxIndex, 3) + "], 0xf0" + int2hex(character, 2) + "\n";
-        output = "0xf0" + int2hex(character, 2) + ", ";
+        output = "0x10" + int2hex(character, 2) + ", ";
     }
 
     return output;
